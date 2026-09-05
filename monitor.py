@@ -1,7 +1,7 @@
 import json
 import os
 import smtplib
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.header import Header
 
@@ -213,7 +213,7 @@ def create_mail_body(results, startup=False):
     lines.append("東横INN 空室監視")
     lines.append("実行環境：GitHub Actions")
     lines.append(
-        f"確認日時：{datetime.now():%Y-%m-%d %H:%M:%S}"
+        f"確認日時：{datetime.now(timezone(timedelta(hours=9))):%Y-%m-%d %H:%M:%S}"
     )
     lines.append(f"チェックイン：{CHECKIN}")
     lines.append(f"チェックアウト：{CHECKOUT}")
