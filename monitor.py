@@ -13,8 +13,10 @@ from selenium.webdriver.support import expected_conditions as EC
 
 
 # ============================================================
-# ホテル
+# 基本設定
 # ============================================================
+
+STATE_FILE = "state.json"
 
 HOTELS = [
     {
@@ -36,13 +38,6 @@ HOTELS = [
 ]
 
 
-STATE_FILE = "state.json"
-
-
-# ============================================================
-# 設定
-# ============================================================
-
 CHECKIN = os.environ["TOYOKO_CHECKIN"]
 CHECKOUT = os.environ["TOYOKO_CHECKOUT"]
 PEOPLE = os.environ.get("TOYOKO_PEOPLE", "1")
@@ -55,7 +50,7 @@ GMAIL_RECEIVER = os.environ["GMAIL_RECEIVER"]
 
 
 # ============================================================
-# URL
+# URL作成
 # ============================================================
 
 def make_url(hotel_id):
@@ -108,13 +103,18 @@ def save_state(state):
 
 def check_hotel(driver, hotel):
 
+    hotel_name = hotel["name"]
+    hotel_id = hotel["id"]
+
+    url = make_url(hotel_id)
+
     print()
     print("=" * 60)
-    print(f"ホテル：{hotel['name']}")
-    print(f"ホテル番号：{hotel['id']}")
+    print(f"ホテル：{hotel_name}")
+    print(f"ホテル番号：{hotel_id}")
     print("=" * 60)
 
-    driver.get(make_url(hotel["id"]))
+    driver.get(url)
 
     wait = WebDriverWait(driver, 30)
 
@@ -126,6 +126,9 @@ def check_hotel(driver, hotel):
             )
         )
     )
+
+    if not cards:
+        raise Exception("部屋情報を取得できませんでした")
 
     room_status = {}
 
@@ -158,7 +161,7 @@ def check_hotel(driver, hotel):
 
         except Exception as error:
 
-            print(f"部屋情報取得エラー：{error}")
+            print(f"部屋情報の取得エラー：{error}")
 
     vacancy = any(room_status.values())
 
@@ -178,6 +181,8 @@ def print_status(hotel, room_status):
         mark = "○" if available else "×"
 
         print(f"{mark}　{room}")
+
+    print()
 
     available_rooms = [
         room
@@ -201,11 +206,12 @@ def print_status(hotel, room_status):
 # メール本文
 # ============================================================
 
-def create_mail_body(results, first_run=False):
+def create_mail_body(results, startup=False):
 
     lines = []
 
     lines.append("東横INN 空室監視")
+    lines.append("実行環境：GitHub Actions")
     lines.append(
         f"確認日時：{datetime.now():%Y-%m-%d %H:%M:%S}"
     )
@@ -213,7 +219,7 @@ def create_mail_body(results, first_run=False):
     lines.append(f"チェックアウト：{CHECKOUT}")
     lines.append("")
 
-    if first_run:
+    if startup:
         lines.append("【監視開始時の空室状況】")
     else:
         lines.append("【空室が発生しました】")
@@ -222,7 +228,9 @@ def create_mail_body(results, first_run=False):
 
     for hotel, vacancy, room_status in results:
 
-        lines.append(f"【{hotel['name']}】")
+        lines.append(
+            f"【{hotel['name']}】"
+        )
 
         for room, available in room_status.items():
 
@@ -255,7 +263,7 @@ def create_mail_body(results, first_run=False):
 
 
 # ============================================================
-# Gmail
+# Gmail送信
 # ============================================================
 
 def send_mail(subject, body):
@@ -274,22 +282,31 @@ def send_mail(subject, body):
     message["From"] = GMAIL_SENDER
     message["To"] = GMAIL_RECEIVER
 
-    print()
-    print("📧 メールを送信しています...")
+    try:
 
-    with smtplib.SMTP_SSL(
-        "smtp.gmail.com",
-        465
-    ) as smtp:
+        print()
+        print("📧 メールを送信しています...")
 
-        smtp.login(
-            GMAIL_SENDER,
-            GMAIL_PASSWORD
-        )
+        with smtplib.SMTP_SSL(
+            "smtp.gmail.com",
+            465
+        ) as smtp:
 
-        smtp.send_message(message)
+            smtp.login(
+                GMAIL_SENDER,
+                GMAIL_PASSWORD
+            )
 
-    print("✅ メールを送信しました")
+            smtp.send_message(
+                message
+            )
+
+        print("✅ メールを送信しました")
+
+    except Exception as error:
+
+        print("❌ メール送信に失敗しました")
+        print(error)
 
 
 # ============================================================
@@ -300,16 +317,22 @@ def main():
 
     print()
     print("=" * 60)
-    print("東横INN 空室監視")
+    print("東横INN 空室監視ツール")
     print("=" * 60)
 
+    print()
+    print(f"ホテル数：{len(HOTELS)}")
     print(f"宿泊日：{CHECKIN} ～ {CHECKOUT}")
     print(f"人数：{PEOPLE}")
     print(f"部屋数：{ROOMS}")
+    print()
 
+    # 前回状態
     previous_state = load_state()
+
+    # state.jsonがなければ初回
     first_run = not os.path.exists(STATE_FILE)
-    
+
     # --------------------------------------------------------
     # Chrome
     # --------------------------------------------------------
@@ -330,6 +353,10 @@ def main():
     changed_results = []
 
     try:
+
+        # ====================================================
+        # ホテルチェック
+        # ====================================================
 
         for hotel in HOTELS:
 
@@ -356,13 +383,14 @@ def main():
                 hotel_id = hotel["id"]
 
                 # --------------------------------------------
-                # 前回状態
+                # 前回状態と比較
                 # --------------------------------------------
 
                 if hotel_id in previous_state:
 
                     previous = previous_state[hotel_id]
 
+                    # 空室なし → 空室あり
                     if (
                         previous is False
                         and vacancy is True
@@ -380,6 +408,7 @@ def main():
                             )
                         )
 
+                    # 空室あり → 空室なし
                     elif (
                         previous is True
                         and vacancy is False
@@ -401,6 +430,7 @@ def main():
                         "初回チェック：状態を記録します。"
                     )
 
+                # 現在状態を保存
                 previous_state[hotel_id] = vacancy
 
             except Exception as error:
@@ -412,42 +442,41 @@ def main():
 
                 print(error)
 
-        # ----------------------------------------------------
+        # ====================================================
         # 状態保存
-        # ----------------------------------------------------
+        # ====================================================
 
         save_state(previous_state)
 
-        # ----------------------------------------------------
-        # 初回
-        # ----------------------------------------------------
+        # ====================================================
+        # 初回メール
+        # ====================================================
 
-        if first_run:
+        if first_run and results:
 
-            if results:
+            body = create_mail_body(
+                results,
+                startup=True
+            )
 
-                body = create_mail_body(
-                    results,
-                    first_run=True
-                )
+            send_mail(
+                "【東横INN・GitHub】監視開始時の空室状況",
+                body
+            )
 
-                send_mail(
-                    "【東横INN】監視開始時の空室状況",
-                    body
-                )
-
-        # ----------------------------------------------------
-        # 空室発生
-        # ----------------------------------------------------
+        # ====================================================
+        # 空室発生メール
+        # ====================================================
 
         if changed_results:
 
             body = create_mail_body(
-                changed_results
+                changed_results,
+                startup=False
             )
 
             send_mail(
-                "【東横INN】空室が発生しました！",
+                "【東横INN・GitHub】空室が発生しました！",
                 body
             )
 
@@ -458,6 +487,10 @@ def main():
         print()
         print("Chromeを終了しました。")
 
+
+# ============================================================
+# 起動
+# ============================================================
 
 if __name__ == "__main__":
     main()
