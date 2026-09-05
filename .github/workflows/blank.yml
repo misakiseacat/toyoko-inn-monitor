@@ -1,12 +1,38 @@
-name: Test
+name: Toyoko Inn Vacancy Monitor
 
 on:
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  test:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test
-        run: echo "GitHub Actions OK"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install packages
+        run: |
+          pip install selenium
+
+      - name: Run monitor
+        env:
+          TOYOKO_CHECKIN: ${{ secrets.TOYOKO_CHECKIN }}
+          TOYOKO_CHECKOUT: ${{ secrets.TOYOKO_CHECKOUT }}
+          TOYOKO_PEOPLE: ${{ secrets.TOYOKO_PEOPLE }}
+          TOYOKO_ROOMS: ${{ secrets.TOYOKO_ROOMS }}
+          TOYOKO_SMOKING: ${{ secrets.TOYOKO_SMOKING }}
+          GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
+        run: python monitor.py
