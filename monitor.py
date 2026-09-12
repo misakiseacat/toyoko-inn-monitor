@@ -18,6 +18,8 @@ from selenium.webdriver.support import expected_conditions as EC
 
 STATE_FILE = "state.json"
 
+JST = timezone(timedelta(hours=9))
+
 HOTELS = [
     {
         "name": "東横INNソウル江南",
@@ -50,6 +52,14 @@ GMAIL_RECEIVER = os.environ["GMAIL_RECEIVER"]
 
 
 # ============================================================
+# 現在時刻
+# ============================================================
+
+def now_jst():
+    return datetime.now(JST)
+
+
+# ============================================================
 # URL作成
 # ============================================================
 
@@ -79,16 +89,28 @@ def load_state():
         return {}
 
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             return json.load(f)
 
     except Exception:
+
         return {}
 
 
 def save_state(state):
 
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
         json.dump(
             state,
             f,
@@ -206,23 +228,46 @@ def print_status(hotel, room_status):
 # メール本文
 # ============================================================
 
-def create_mail_body(results, startup=False):
+def create_mail_body(
+    results,
+    mail_type
+):
 
     lines = []
 
     lines.append("東横INN 空室監視")
     lines.append("実行環境：GitHub Actions")
     lines.append(
-        f"確認日時：{datetime.now(timezone(timedelta(hours=9))):%Y-%m-%d %H:%M:%S}"
+        f"確認日時：{now_jst():%Y-%m-%d %H:%M:%S}"
     )
-    lines.append(f"チェックイン：{CHECKIN}")
-    lines.append(f"チェックアウト：{CHECKOUT}")
+
+    lines.append(
+        f"チェックイン：{CHECKIN}"
+    )
+
+    lines.append(
+        f"チェックアウト：{CHECKOUT}"
+    )
+
     lines.append("")
 
-    if startup:
-        lines.append("【監視開始時の空室状況】")
-    else:
-        lines.append("【空室が発生しました】")
+    if mail_type == "startup":
+
+        lines.append(
+            "【監視開始時の空室状況】"
+        )
+
+    elif mail_type == "daily":
+
+        lines.append(
+            "【毎朝7:00 定期監視】"
+        )
+
+    elif mail_type == "vacancy":
+
+        lines.append(
+            "【空室が発生しました】"
+        )
 
     lines.append("")
 
@@ -303,10 +348,14 @@ def send_mail(subject, body):
 
         print("✅ メールを送信しました")
 
+        return True
+
     except Exception as error:
 
         print("❌ メール送信に失敗しました")
         print(error)
+
+        return False
 
 
 # ============================================================
@@ -320,22 +369,46 @@ def main():
     print("東横INN 空室監視ツール")
     print("=" * 60)
 
+    current_time = now_jst()
+
     print()
-    print(f"ホテル数：{len(HOTELS)}")
-    print(f"宿泊日：{CHECKIN} ～ {CHECKOUT}")
-    print(f"人数：{PEOPLE}")
-    print(f"部屋数：{ROOMS}")
+    print(
+        f"現在時刻：{current_time:%Y-%m-%d %H:%M:%S}"
+    )
+
+    print(
+        f"ホテル数：{len(HOTELS)}"
+    )
+
+    print(
+        f"宿泊日：{CHECKIN} ～ {CHECKOUT}"
+    )
+
+    print(
+        f"人数：{PEOPLE}"
+    )
+
+    print(
+        f"部屋数：{ROOMS}"
+    )
+
     print()
 
+    # ========================================================
     # 前回状態
+    # ========================================================
+
     previous_state = load_state()
 
-    # state.jsonがなければ初回
+    # 初回起動か
     first_run = not os.path.exists(STATE_FILE)
 
-    # --------------------------------------------------------
+    # 今日の日付
+    today = current_time.strftime("%Y-%m-%d")
+
+    # ========================================================
     # Chrome
-    # --------------------------------------------------------
+    # ========================================================
 
     options = Options()
 
@@ -443,26 +516,62 @@ def main():
                 print(error)
 
         # ====================================================
-        # 状態保存
-        # ====================================================
-
-        save_state(previous_state)
-
-        # ====================================================
-        # 初回メール
+        # 起動時メール
         # ====================================================
 
         if first_run and results:
 
+            print()
+            print("📢 初回起動メールを送信します")
+
             body = create_mail_body(
                 results,
-                startup=True
+                "startup"
             )
 
-            send_mail(
-                "【東横INN・GitHub】監視開始時の空室状況",
+            if send_mail(
+                "【東横INN・GitHub】監視開始",
                 body
+            ):
+
+                previous_state[
+                    "startup_mail_sent"
+                ] = True
+
+        # ====================================================
+        # 毎朝7:00メール
+        # ====================================================
+
+        last_daily_mail = previous_state.get(
+            "last_daily_mail"
+        )
+
+        is_7am = (
+            current_time.hour == 7
+        )
+
+        if (
+            is_7am
+            and last_daily_mail != today
+            and results
+        ):
+
+            print()
+            print("📢 毎朝7:00の定期メールを送信します")
+
+            body = create_mail_body(
+                results,
+                "daily"
             )
+
+            if send_mail(
+                "【東横INN・GitHub】毎朝7:00監視確認",
+                body
+            ):
+
+                previous_state[
+                    "last_daily_mail"
+                ] = today
 
         # ====================================================
         # 空室発生メール
@@ -470,9 +579,12 @@ def main():
 
         if changed_results:
 
+            print()
+            print("📢 空室発生メールを送信します")
+
             body = create_mail_body(
                 changed_results,
-                startup=False
+                "vacancy"
             )
 
             send_mail(
@@ -480,12 +592,21 @@ def main():
                 body
             )
 
+        # ====================================================
+        # 状態保存
+        # ====================================================
+
+        save_state(
+            previous_state
+        )
+
     finally:
 
         driver.quit()
 
         print()
         print("Chromeを終了しました。")
+        print()
 
 
 # ============================================================
