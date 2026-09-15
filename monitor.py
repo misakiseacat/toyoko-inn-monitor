@@ -17,31 +17,15 @@ from selenium.webdriver.support import expected_conditions as EC
 # ============================================================
 
 STATE_FILE = "state.json"
+TARGETS_FILE = "targets.json"
 
 JST = timezone(timedelta(hours=9))
 
-HOTELS = [
-    {
-        "name": "東横INNソウル江南",
-        "id": "00282"
-    },
-    {
-        "name": "東横INNソウル東大門1",
-        "id": "00208"
-    },
-    {
-        "name": "東横INNソウル東大門2",
-        "id": "00291"
-    },
-    {
-        "name": "東横INNソウル永登浦",
-        "id": "00311"
-    }
-]
 
+# ============================================================
+# 環境変数
+# ============================================================
 
-CHECKIN = os.environ["TOYOKO_CHECKIN"]
-CHECKOUT = os.environ["TOYOKO_CHECKOUT"]
 PEOPLE = os.environ.get("TOYOKO_PEOPLE", "1")
 ROOMS = os.environ.get("TOYOKO_ROOMS", "1")
 SMOKING = os.environ.get("TOYOKO_SMOKING", "noSmoking")
@@ -60,10 +44,48 @@ def now_jst():
 
 
 # ============================================================
+# targets.json 読み込み
+# ============================================================
+
+def load_targets():
+
+    if not os.path.exists(TARGETS_FILE):
+        raise Exception(
+            f"{TARGETS_FILE} が見つかりません"
+        )
+
+    try:
+        with open(
+            TARGETS_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            targets = json.load(f)
+
+    except Exception as error:
+
+        raise Exception(
+            f"{TARGETS_FILE} の読み込みに失敗しました：{error}"
+        )
+
+    if not isinstance(targets, list) or not targets:
+        raise Exception(
+            f"{TARGETS_FILE} に監視対象がありません"
+        )
+
+    return targets
+
+
+# ============================================================
 # URL作成
 # ============================================================
 
-def make_url(hotel_id):
+def make_url(target):
+
+    hotel_id = target["hotel_id"]
+    checkin = target["checkin"]
+    checkout = target["checkout"]
 
     return (
         "https://www.toyoko-inn.com/"
@@ -72,8 +94,8 @@ def make_url(hotel_id):
         f"&people={PEOPLE}"
         f"&room={ROOMS}"
         f"&smoking={SMOKING}"
-        f"&start={CHECKIN}"
-        f"&end={CHECKOUT}"
+        f"&start={checkin}"
+        f"&end={checkout}"
         "&tab=roomType"
         "&sort=recommend"
     )
@@ -120,20 +142,36 @@ def save_state(state):
 
 
 # ============================================================
+# 状態保存用キー
+# ============================================================
+
+def make_state_key(target):
+
+    return (
+        f"{target['hotel_id']}_"
+        f"{target['checkin']}_"
+        f"{target['checkout']}"
+    )
+
+
+# ============================================================
 # 空室チェック
 # ============================================================
 
-def check_hotel(driver, hotel):
+def check_hotel(driver, target):
 
-    hotel_name = hotel["name"]
-    hotel_id = hotel["id"]
+    hotel_name = target["hotel_name"]
+    hotel_id = target["hotel_id"]
+    checkin = target["checkin"]
+    checkout = target["checkout"]
 
-    url = make_url(hotel_id)
+    url = make_url(target)
 
     print()
     print("=" * 60)
     print(f"ホテル：{hotel_name}")
     print(f"ホテル番号：{hotel_id}")
+    print(f"宿泊日：{checkin} ～ {checkout}")
     print("=" * 60)
 
     driver.get(url)
@@ -150,7 +188,9 @@ def check_hotel(driver, hotel):
     )
 
     if not cards:
-        raise Exception("部屋情報を取得できませんでした")
+        raise Exception(
+            "部屋情報を取得できませんでした"
+        )
 
     room_status = {}
 
@@ -183,9 +223,13 @@ def check_hotel(driver, hotel):
 
         except Exception as error:
 
-            print(f"部屋情報の取得エラー：{error}")
+            print(
+                f"部屋情報の取得エラー：{error}"
+            )
 
-    vacancy = any(room_status.values())
+    vacancy = any(
+        room_status.values()
+    )
 
     return vacancy, room_status
 
@@ -194,7 +238,7 @@ def check_hotel(driver, hotel):
 # コンソール表示
 # ============================================================
 
-def print_status(hotel, room_status):
+def print_status(target, room_status):
 
     print()
 
@@ -202,7 +246,9 @@ def print_status(hotel, room_status):
 
         mark = "○" if available else "×"
 
-        print(f"{mark}　{room}")
+        print(
+            f"{mark}　{room}"
+        )
 
     print()
 
@@ -235,18 +281,16 @@ def create_mail_body(
 
     lines = []
 
-    lines.append("東横INN 空室監視")
-    lines.append("実行環境：GitHub Actions")
+    lines.append(
+        "東横INN 空室監視"
+    )
+
+    lines.append(
+        "実行環境：GitHub Actions"
+    )
+
     lines.append(
         f"確認日時：{now_jst():%Y-%m-%d %H:%M:%S}"
-    )
-
-    lines.append(
-        f"チェックイン：{CHECKIN}"
-    )
-
-    lines.append(
-        f"チェックアウト：{CHECKOUT}"
     )
 
     lines.append("")
@@ -271,10 +315,15 @@ def create_mail_body(
 
     lines.append("")
 
-    for hotel, vacancy, room_status in results:
+    for target, vacancy, room_status in results:
 
         lines.append(
-            f"【{hotel['name']}】"
+            f"【{target['hotel_name']}】"
+        )
+
+        lines.append(
+            f"宿泊日：{target['checkin']} ～ "
+            f"{target['checkout']}"
         )
 
         for room, available in room_status.items():
@@ -300,7 +349,9 @@ def create_mail_body(
 
         else:
 
-            lines.append("空室なし")
+            lines.append(
+                "空室なし"
+            )
 
         lines.append("")
 
@@ -330,7 +381,9 @@ def send_mail(subject, body):
     try:
 
         print()
-        print("📧 メールを送信しています...")
+        print(
+            "📧 メールを送信しています..."
+        )
 
         with smtplib.SMTP_SSL(
             "smtp.gmail.com",
@@ -346,13 +399,18 @@ def send_mail(subject, body):
                 message
             )
 
-        print("✅ メールを送信しました")
+        print(
+            "✅ メールを送信しました"
+        )
 
         return True
 
     except Exception as error:
 
-        print("❌ メール送信に失敗しました")
+        print(
+            "❌ メール送信に失敗しました"
+        )
+
         print(error)
 
         return False
@@ -366,7 +424,9 @@ def main():
 
     print()
     print("=" * 60)
-    print("東横INN 空室監視ツール")
+    print(
+        "東横INN 空室監視ツール"
+    )
     print("=" * 60)
 
     current_time = now_jst()
@@ -376,12 +436,14 @@ def main():
         f"現在時刻：{current_time:%Y-%m-%d %H:%M:%S}"
     )
 
-    print(
-        f"ホテル数：{len(HOTELS)}"
-    )
+    # ========================================================
+    # targets.json
+    # ========================================================
+
+    targets = load_targets()
 
     print(
-        f"宿泊日：{CHECKIN} ～ {CHECKOUT}"
+        f"監視対象数：{len(targets)}"
     )
 
     print(
@@ -400,11 +462,13 @@ def main():
 
     previous_state = load_state()
 
-    # 初回起動か
-    first_run = not os.path.exists(STATE_FILE)
+    first_run = not os.path.exists(
+        STATE_FILE
+    )
 
-    # 今日の日付
-    today = current_time.strftime("%Y-%m-%d")
+    today = current_time.strftime(
+        "%Y-%m-%d"
+    )
 
     # ========================================================
     # Chrome
@@ -412,11 +476,25 @@ def main():
 
     options = Options()
 
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1280,900")
+    options.add_argument(
+        "--headless"
+    )
+
+    options.add_argument(
+        "--no-sandbox"
+    )
+
+    options.add_argument(
+        "--disable-dev-shm-usage"
+    )
+
+    options.add_argument(
+        "--disable-gpu"
+    )
+
+    options.add_argument(
+        "--window-size=1280,900"
+    )
 
     driver = webdriver.Chrome(
         options=options
@@ -428,42 +506,57 @@ def main():
     try:
 
         # ====================================================
-        # ホテルチェック
+        # targets.json の各対象をチェック
         # ====================================================
 
-        for hotel in HOTELS:
+        for target in targets:
 
             try:
 
                 vacancy, room_status = check_hotel(
                     driver,
-                    hotel
+                    target
                 )
 
                 print_status(
-                    hotel,
+                    target,
                     room_status
                 )
 
                 results.append(
                     (
-                        hotel,
+                        target,
                         vacancy,
                         room_status
                     )
                 )
 
-                hotel_id = hotel["id"]
+                # --------------------------------------------
+                # ホテル＋日付で状態を管理
+                # --------------------------------------------
+
+                state_key = make_state_key(
+                    target
+                )
+
+                print(
+                    f"状態キー：{state_key}"
+                )
 
                 # --------------------------------------------
                 # 前回状態と比較
                 # --------------------------------------------
 
-                if hotel_id in previous_state:
+                if state_key in previous_state:
 
-                    previous = previous_state[hotel_id]
+                    previous = previous_state[
+                        state_key
+                    ]
 
+                    # ========================================
                     # 空室なし → 空室あり
+                    # ========================================
+
                     if (
                         previous is False
                         and vacancy is True
@@ -475,13 +568,16 @@ def main():
 
                         changed_results.append(
                             (
-                                hotel,
+                                target,
                                 vacancy,
                                 room_status
                             )
                         )
 
+                    # ========================================
                     # 空室あり → 空室なし
+                    # ========================================
+
                     elif (
                         previous is True
                         and vacancy is False
@@ -503,13 +599,20 @@ def main():
                         "初回チェック：状態を記録します。"
                     )
 
+                # --------------------------------------------
                 # 現在状態を保存
-                previous_state[hotel_id] = vacancy
+                # --------------------------------------------
+
+                previous_state[
+                    state_key
+                ] = vacancy
 
             except Exception as error:
 
                 print(
-                    f"❌ {hotel['name']} "
+                    f"❌ {target['hotel_name']} "
+                    f"{target['checkin']}～"
+                    f"{target['checkout']} "
                     "チェックエラー"
                 )
 
@@ -522,7 +625,9 @@ def main():
         if first_run and results:
 
             print()
-            print("📢 初回起動メールを送信します")
+            print(
+                "📢 初回起動メールを送信します"
+            )
 
             body = create_mail_body(
                 results,
@@ -557,7 +662,9 @@ def main():
         ):
 
             print()
-            print("📢 毎朝7:00の定期メールを送信します")
+            print(
+                "📢 毎朝7:00の定期メールを送信します"
+            )
 
             body = create_mail_body(
                 results,
@@ -580,7 +687,9 @@ def main():
         if changed_results:
 
             print()
-            print("📢 空室発生メールを送信します")
+            print(
+                "📢 空室発生メールを送信します"
+            )
 
             body = create_mail_body(
                 changed_results,
@@ -600,12 +709,20 @@ def main():
             previous_state
         )
 
+        print()
+        print(
+            "💾 state.json を保存しました"
+        )
+
     finally:
 
         driver.quit()
 
         print()
-        print("Chromeを終了しました。")
+        print(
+            "Chromeを終了しました。"
+        )
+
         print()
 
 
