@@ -36,15 +36,14 @@ jobs:
 
       - name: Run monitor
         env:
-          TOYOKO_PEOPLE: ${{ secrets.TOYOKO_PEOPLE }}
-          TOYOKO_ROOMS: ${{ secrets.TOYOKO_ROOMS }}
-          TOYOKO_SMOKING: ${{ secrets.TOYOKO_SMOKING }}
+          TOYOKO_PEOPLE: ${{ vars.TOYOKO_PEOPLE }}
+          TOYOKO_ROOMS: ${{ vars.TOYOKO_ROOMS }}
+          TOYOKO_SMOKING: ${{ vars.TOYOKO_SMOKING }}
           GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
-          PYTHONUNBUFFERED: "1"          # ← この行を追加
-
-        run: python -u monitor.py         # ← "python" を "python -u" に変更
+          PYTHONUNBUFFERED: "1"
+        run: python -u monitor.py
 
       - name: Save state
         run: |
