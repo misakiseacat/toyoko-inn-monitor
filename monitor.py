@@ -27,6 +27,13 @@ GMAIL_SENDER = os.environ["GMAIL_SENDER"]
 GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
 GMAIL_RECEIVER = os.environ["GMAIL_RECEIVER"]
 
+# "1" / "true" のどちらで渡ってきても有効になるようにしておく
+# （ワークフロー側の書き方の違いに影響されないようにするため）
+DEBUG_HTML = os.environ.get("TOYOKO_DEBUG_HTML", "").strip().lower() in (
+    "1",
+    "true",
+)
+
 JST = timezone(timedelta(hours=9))
 
 
@@ -312,6 +319,32 @@ def check_hotel(driver, target):
     # どれか1枚にプラン情報（または空室なし表示）が
     # 現れるまで待つ。
     wait_for_any_card_content(driver, cards)
+
+    # ------------------------------------------------------------
+    # デバッグ用：実際のHTML構造を確認するための一時的な仕組み。
+    #
+    # TOYOKO_DEBUG_HTML=1 のときだけ、このホテルのページの
+    # HTML全体をファイルに保存する。セレクタが実際のサイト構造と
+    # 合っているかどうかを目視確認するための応急措置であり、
+    # 恒久的な機能ではない（原因特定後に削除して良い）。
+    # ------------------------------------------------------------
+
+    if DEBUG_HTML:
+
+        safe_id = make_state_key(target).replace("/", "-")
+
+        try:
+            with open(
+                f"debug_{safe_id}.html",
+                "w",
+                encoding="utf-8"
+            ) as f:
+                f.write(driver.page_source)
+
+            print(f"デバッグHTML保存：debug_{safe_id}.html")
+
+        except Exception as error:
+            print(f"デバッグHTML保存失敗：{error}")
 
     room_status = {}
 
@@ -601,6 +634,13 @@ def main():
 
     print(
         f"喫煙条件：{SMOKING}"
+    )
+
+    print(
+        f"デバッグHTML保存モード："
+        f"{DEBUG_HTML} "
+        f"（環境変数の生値："
+        f"{os.environ.get('TOYOKO_DEBUG_HTML')!r}）"
     )
 
     # --------------------------------------------------------
