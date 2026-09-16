@@ -46,5 +46,17 @@
         "checkout": "2026-10-25",
         "hotel_id": "00311",
         "hotel_name": "東横INNソウル永登浦"
+    },
+    {
+        "checkin": "2026-09-16",
+        "checkout": "2026-09-17",
+        "hotel_id": "00208",
+        "hotel_name": "東横INNソウル東大門1"
+    },
+    {
+        "checkin": "2026-09-17",
+        "checkout": "2026-09-18",
+        "hotel_id": "00208",
+        "hotel_name": "東横INNソウル東大門1"
     }
 ]
