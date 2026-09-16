@@ -216,7 +216,7 @@ CHILD_PLAN_SELECTOR = (
 # どちらか一方が現れるまで明示的に待つ。
 # ============================================================
 
-def wait_for_card_content(driver, card, timeout=10):
+def wait_for_card_content(driver, card, timeout=2):
 
     try:
         WebDriverWait(driver, timeout).until(
