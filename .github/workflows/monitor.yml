@@ -48,7 +48,11 @@ jobs:
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
           PYTHONUNBUFFERED: "1"
-          TOYOKO_DEBUG_HTML: ${{ github.event.inputs.debug_html == 'true' && '1' || '0' }}
+          # 複雑な三項式は書き方によって思わぬ値になりやすいため、
+          # トップレベルの inputs コンテキストの値をそのまま渡し、
+          # Python側（monitor.py）で "true"/"1" どちらでも
+          # 有効と判定するようにしている。
+          TOYOKO_DEBUG_HTML: ${{ inputs.debug_html }}
 
         run: python -u monitor.py
 
