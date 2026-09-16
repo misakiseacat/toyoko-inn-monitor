@@ -231,6 +231,15 @@ def check_hotel(driver, target):
     print(f"URL：{url}")
     print("=" * 70)
 
+    # 対象ホテルIDとURLのホテルIDが一致しているか確認
+    expected = f"hotel={hotel_id}"
+
+    if expected not in url:
+        raise RuntimeError(
+            f"ホテルIDとURLが一致しません。"
+            f" hotel_id={hotel_id}, URL={url}"
+        )
+
     driver.get(url)
 
     wait = WebDriverWait(driver, 30)
@@ -299,12 +308,13 @@ def check_hotel(driver, target):
                 available = True
                 reason = f"プラン{len(plans)}件"
             else:
-                # 取得失敗を「空室なし」と誤認しない
-                raise RuntimeError(
-                    f"「{title}」について、"
-                    "空室なし表示もプラン表示も確認できませんでした。"
-                )
-
+                # 東横INN側のHTML変更などにより、
+                # 「空室なし」専用の要素が存在しない場合がある。
+                #
+                # プランが存在しない場合は空室なしとして扱う。
+                available = False
+                reason = "プランなし"
+                
         room_status[title] = available
 
         mark = "○" if available else "×"
@@ -576,7 +586,16 @@ def main():
 
     previous_state = load_state()
 
-    first_run = not bool(previous_state)
+    # 監視対象の状態がまだstate.jsonに存在するか確認
+    target_state_keys = {
+        make_state_key(target)
+        for target in targets
+    }
+
+    first_run = not any(
+        key in previous_state
+        for key in target_state_keys
+    )
 
     if first_run:
         print()
@@ -724,6 +743,23 @@ def main():
                     previous_state[state_key] = vacancy
 
             except Exception as error:
+
+                # エラー時の画面を保存
+                # GitHub ActionsでHTML変更を確認するため
+                try:
+                    safe_id = make_state_key(target).replace("/", "-")
+
+                    driver.save_screenshot(
+                        f"error_{safe_id}.png"
+                    )
+
+                    print(
+                        f"エラー画面保存："
+                        f"error_{safe_id}.png"
+                    )
+
+                except Exception:
+                    pass
 
                 message = (
                     f"{target['hotel_name']} "
