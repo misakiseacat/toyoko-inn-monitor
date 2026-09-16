@@ -19,13 +19,6 @@ from selenium.webdriver.support import expected_conditions as EC
 STATE_FILE = "state.json"
 TARGETS_FILE = "targets.json"
 
-JST = timezone(timedelta(hours=9))
-
-
-# ============================================================
-# 環境変数
-# ============================================================
-
 PEOPLE = os.environ.get("TOYOKO_PEOPLE", "1")
 ROOMS = os.environ.get("TOYOKO_ROOMS", "1")
 SMOKING = os.environ.get("TOYOKO_SMOKING", "noSmoking")
@@ -33,6 +26,8 @@ SMOKING = os.environ.get("TOYOKO_SMOKING", "noSmoking")
 GMAIL_SENDER = os.environ["GMAIL_SENDER"]
 GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
 GMAIL_RECEIVER = os.environ["GMAIL_RECEIVER"]
+
+JST = timezone(timedelta(hours=9))
 
 
 # ============================================================
@@ -44,35 +39,65 @@ def now_jst():
 
 
 # ============================================================
-# targets.json 読み込み
+# targets.json 読み込み・チェック
 # ============================================================
 
 def load_targets():
-
     if not os.path.exists(TARGETS_FILE):
-        raise Exception(
-            f"{TARGETS_FILE} が見つかりません"
+        raise FileNotFoundError(
+            f"{TARGETS_FILE} が見つかりません。"
         )
 
-    try:
-        with open(
-            TARGETS_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            targets = json.load(f)
-
-    except Exception as error:
-
-        raise Exception(
-            f"{TARGETS_FILE} の読み込みに失敗しました：{error}"
-        )
+    with open(TARGETS_FILE, "r", encoding="utf-8") as f:
+        targets = json.load(f)
 
     if not isinstance(targets, list) or not targets:
-        raise Exception(
-            f"{TARGETS_FILE} に監視対象がありません"
+        raise ValueError(
+            "targets.json に監視条件がありません。"
         )
+
+    required = [
+        "checkin",
+        "checkout",
+        "hotel_id",
+        "hotel_name"
+    ]
+
+    state_keys = set()
+
+    for i, target in enumerate(targets, start=1):
+
+        for key in required:
+            if not target.get(key):
+                raise ValueError(
+                    f"targets.json {i}行目：{key} がありません。"
+                )
+
+        try:
+            checkin = datetime.strptime(
+                target["checkin"], "%Y-%m-%d"
+            )
+            checkout = datetime.strptime(
+                target["checkout"], "%Y-%m-%d"
+            )
+        except ValueError:
+            raise ValueError(
+                f"targets.json {i}行目：日付は YYYY-MM-DD 形式にしてください。"
+            )
+
+        if checkin >= checkout:
+            raise ValueError(
+                f"targets.json {i}行目：チェックアウト日が正しくありません。"
+            )
+
+        state_key = make_state_key(target)
+
+        if state_key in state_keys:
+            raise ValueError(
+                f"targets.json に同じ監視条件が重複しています：{state_key}"
+            )
+
+        state_keys.add(state_key)
 
     return targets
 
@@ -81,11 +106,7 @@ def load_targets():
 # URL作成
 # ============================================================
 
-def make_url(target):
-
-    hotel_id = target["hotel_id"]
-    checkin = target["checkin"]
-    checkout = target["checkout"]
+def make_url(hotel_id, checkin, checkout):
 
     return (
         "https://www.toyoko-inn.com/"
@@ -102,37 +123,41 @@ def make_url(target):
 
 
 # ============================================================
-# 前回状態
+# state.json
 # ============================================================
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
+        print("state.json：ありません（初回実行）")
         return {}
 
     try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
 
-        with open(
-            STATE_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
+        if not isinstance(state, dict):
+            raise ValueError("state.json が辞書形式ではありません。")
 
-            return json.load(f)
+        print(
+            f"state.json：読み込み成功 "
+            f"（{len(state)} 件）"
+        )
 
-    except Exception:
+        return state
 
-        return {}
+    except Exception as error:
+        # 壊れたstateを黙って初期化しない
+        raise RuntimeError(
+            f"state.json の読み込みに失敗しました：{error}"
+        )
 
 
 def save_state(state):
 
-    with open(
-        STATE_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    temp_file = STATE_FILE + ".tmp"
 
+    with open(temp_file, "w", encoding="utf-8") as f:
         json.dump(
             state,
             f,
@@ -140,10 +165,13 @@ def save_state(state):
             indent=4
         )
 
+    os.replace(temp_file, STATE_FILE)
 
-# ============================================================
-# 状態保存用キー
-# ============================================================
+    print(
+        f"state.json：保存成功 "
+        f"（{len(state)} 件）"
+    )
+
 
 def make_state_key(target):
 
@@ -152,6 +180,30 @@ def make_state_key(target):
         f"{target['checkin']}_"
         f"{target['checkout']}"
     )
+
+
+# ============================================================
+# Seleniumセレクタ
+#
+# 東横INN側の末尾ハッシュが変わっても対応できるよう、
+# class名の前半部分を使う
+# ============================================================
+
+PARENT_CARD_SELECTOR = (
+    "div[class*='SearchResultRoomPlanParentCard_card-wrapper']"
+)
+
+ROOM_TITLE_SELECTOR = (
+    "h2[class*='SearchResultRoomPlanParentCard_title']"
+)
+
+NO_RESULT_SELECTOR = (
+    "div[class*='SearchResultRoomPlanParentCard_no-result']"
+)
+
+CHILD_PLAN_SELECTOR = (
+    "div[class*='SearchResultRoomPlanChildCard_card-wrapper']"
+)
 
 
 # ============================================================
@@ -165,70 +217,114 @@ def check_hotel(driver, target):
     checkin = target["checkin"]
     checkout = target["checkout"]
 
-    url = make_url(target)
+    url = make_url(
+        hotel_id,
+        checkin,
+        checkout
+    )
 
     print()
-    print("=" * 60)
+    print("=" * 70)
     print(f"ホテル：{hotel_name}")
-    print(f"ホテル番号：{hotel_id}")
+    print(f"ホテルID：{hotel_id}")
     print(f"宿泊日：{checkin} ～ {checkout}")
-    print("=" * 60)
+    print(f"URL：{url}")
+    print("=" * 70)
 
     driver.get(url)
 
     wait = WebDriverWait(driver, 30)
 
+    # ページ読み込み完了を待つ
+    wait.until(
+        lambda d:
+        d.execute_script("return document.readyState")
+        == "complete"
+    )
+
+    # 部屋カードが出るまで待つ
     cards = wait.until(
         EC.presence_of_all_elements_located(
             (
                 By.CSS_SELECTOR,
-                "div.SearchResultRoomPlanParentCard_card-wrapper__nWL53"
+                PARENT_CARD_SELECTOR
             )
         )
     )
 
     if not cards:
-        raise Exception(
-            "部屋情報を取得できませんでした"
+        raise RuntimeError(
+            "部屋カードを1件も取得できませんでした。"
         )
+
+    print(f"部屋タイプカード数：{len(cards)}")
 
     room_status = {}
 
-    for card in cards:
+    for index, card in enumerate(cards, start=1):
 
-        try:
+        title_elements = card.find_elements(
+            By.CSS_SELECTOR,
+            ROOM_TITLE_SELECTOR
+        )
 
-            title = card.find_element(
-                By.CSS_SELECTOR,
-                "h2.SearchResultRoomPlanParentCard_title__9u3Zj"
-            ).text.strip()
-
-            no_result = card.find_elements(
-                By.CSS_SELECTOR,
-                "div.SearchResultRoomPlanParentCard_no-result__z__9v"
+        if not title_elements:
+            raise RuntimeError(
+                f"{index}番目の部屋カードから部屋名を取得できません。"
             )
 
-            if no_result:
+        title = title_elements[0].text.strip()
 
-                room_status[title] = False
+        if not title:
+            raise RuntimeError(
+                f"{index}番目の部屋カードの部屋名が空です。"
+            )
 
+        no_result = card.find_elements(
+            By.CSS_SELECTOR,
+            NO_RESULT_SELECTOR
+        )
+
+        if no_result:
+            available = False
+            reason = "空室なし表示"
+
+        else:
+            plans = card.find_elements(
+                By.CSS_SELECTOR,
+                CHILD_PLAN_SELECTOR
+            )
+
+            if plans:
+                available = True
+                reason = f"プラン{len(plans)}件"
             else:
-
-                plans = card.find_elements(
-                    By.CSS_SELECTOR,
-                    "div.SearchResultRoomPlanChildCard_card-wrapper__26ENX"
+                # 取得失敗を「空室なし」と誤認しない
+                raise RuntimeError(
+                    f"「{title}」について、"
+                    "空室なし表示もプラン表示も確認できませんでした。"
                 )
 
-                room_status[title] = len(plans) > 0
+        room_status[title] = available
 
-        except Exception as error:
+        mark = "○" if available else "×"
 
-            print(
-                f"部屋情報の取得エラー：{error}"
-            )
+        print(
+            f"{mark} {title} "
+            f"（{reason}）"
+        )
 
-    vacancy = any(
-        room_status.values()
+    if not room_status:
+        raise RuntimeError(
+            "部屋状態を1件も取得できませんでした。"
+        )
+
+    vacancy = any(room_status.values())
+
+    print()
+    print(
+        "判定結果："
+        + ("🟢 空室あり" if vacancy else "🔴 空室なし")
     )
 
     return vacancy, room_status
@@ -250,8 +346,6 @@ def print_status(target, room_status):
             f"{mark}　{room}"
         )
 
-    print()
-
     available_rooms = [
         room
         for room, available in room_status.items()
@@ -260,6 +354,7 @@ def print_status(target, room_status):
 
     if available_rooms:
 
+        print()
         print(
             "🟢 空室あり："
             + "、".join(available_rooms)
@@ -267,6 +362,7 @@ def print_status(target, room_status):
 
     else:
 
+        print()
         print("🔴 空室なし")
 
 
@@ -276,42 +372,32 @@ def print_status(target, room_status):
 
 def create_mail_body(
     results,
-    mail_type
+    mail_type,
+    errors=None
 ):
 
     lines = []
 
-    lines.append(
-        "東横INN 空室監視"
-    )
+    current_time = now_jst()
 
+    lines.append("東横INN 空室監視")
+    lines.append("実行環境：GitHub Actions")
     lines.append(
-        "実行環境：GitHub Actions"
+        f"確認日時：{current_time:%Y-%m-%d %H:%M:%S}"
     )
-
     lines.append(
-        f"確認日時：{now_jst():%Y-%m-%d %H:%M:%S}"
+        f"監視件数：{len(results)} 件"
     )
-
     lines.append("")
 
     if mail_type == "startup":
-
-        lines.append(
-            "【監視開始時の空室状況】"
-        )
+        lines.append("【監視開始時の空室状況】")
 
     elif mail_type == "daily":
-
-        lines.append(
-            "【毎朝7:00 定期監視】"
-        )
+        lines.append("【毎朝7:00 定期監視】")
 
     elif mail_type == "vacancy":
-
-        lines.append(
-            "【空室が発生しました】"
-        )
+        lines.append("【空室が発生しました】")
 
     lines.append("")
 
@@ -322,7 +408,8 @@ def create_mail_body(
         )
 
         lines.append(
-            f"宿泊日：{target['checkin']} ～ "
+            f"宿泊日："
+            f"{target['checkin']} ～ "
             f"{target['checkout']}"
         )
 
@@ -349,11 +436,25 @@ def create_mail_body(
 
         else:
 
+            lines.append("空室なし")
+
+        lines.append("")
+
+    if errors:
+
+        lines.append("【チェックエラー】")
+        lines.append("")
+
+        for error in errors:
             lines.append(
-                "空室なし"
+                f"・{error}"
             )
 
         lines.append("")
+
+    lines.append(
+        "※ ○＝空室あり、×＝空室なし"
+    )
 
     return "\n".join(lines)
 
@@ -382,7 +483,7 @@ def send_mail(subject, body):
 
         print()
         print(
-            "📧 メールを送信しています..."
+            f"📧 メール送信：{subject}"
         )
 
         with smtplib.SMTP_SSL(
@@ -400,7 +501,7 @@ def send_mail(subject, body):
             )
 
         print(
-            "✅ メールを送信しました"
+            "✅ メール送信成功"
         )
 
         return True
@@ -408,10 +509,11 @@ def send_mail(subject, body):
     except Exception as error:
 
         print(
-            "❌ メール送信に失敗しました"
+            "❌ メール送信失敗"
         )
-
-        print(error)
+        print(
+            f"エラー：{error}"
+        )
 
         return False
 
@@ -423,27 +525,15 @@ def send_mail(subject, body):
 def main():
 
     print()
-    print("=" * 60)
-    print(
-        "東横INN 空室監視ツール"
-    )
-    print("=" * 60)
+    print("=" * 70)
+    print("東横INN 空室監視ツール")
+    print("=" * 70)
 
     current_time = now_jst()
 
-    print()
     print(
-        f"現在時刻：{current_time:%Y-%m-%d %H:%M:%S}"
-    )
-
-    # ========================================================
-    # targets.json
-    # ========================================================
-
-    targets = load_targets()
-
-    print(
-        f"監視対象数：{len(targets)}"
+        f"現在時刻："
+        f"{current_time:%Y-%m-%d %H:%M:%S}"
     )
 
     print(
@@ -454,44 +544,65 @@ def main():
         f"部屋数：{ROOMS}"
     )
 
-    print()
+    print(
+        f"喫煙条件：{SMOKING}"
+    )
 
-    # ========================================================
-    # 前回状態
-    # ========================================================
+    # --------------------------------------------------------
+    # targets.json
+    # --------------------------------------------------------
+
+    targets = load_targets()
+
+    print(
+        f"監視件数：{len(targets)}"
+    )
+
+    for i, target in enumerate(
+        targets,
+        start=1
+    ):
+
+        print(
+            f"{i}. "
+            f"{target['hotel_name']} "
+            f"{target['checkin']}～"
+            f"{target['checkout']}"
+        )
+
+    # --------------------------------------------------------
+    # state.json
+    # --------------------------------------------------------
 
     previous_state = load_state()
 
-    first_run = not os.path.exists(
-        STATE_FILE
-    )
+    first_run = not bool(previous_state)
 
-    today = current_time.strftime(
-        "%Y-%m-%d"
-    )
+    if first_run:
+        print()
+        print(
+            "★ state.jsonに監視履歴がありません。"
+        )
+        print(
+            "★ 今回は各条件の現在状態を初期登録します。"
+        )
 
-    # ========================================================
+    results = []
+    changed_results = []
+    errors = []
+
+    # --------------------------------------------------------
     # Chrome
-    # ========================================================
+    # --------------------------------------------------------
 
     options = Options()
 
-    options.add_argument(
-        "--headless"
-    )
-
-    options.add_argument(
-        "--no-sandbox"
-    )
-
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
     options.add_argument(
         "--disable-dev-shm-usage"
     )
-
-    options.add_argument(
-        "--disable-gpu"
-    )
-
+    options.add_argument("--disable-gpu")
     options.add_argument(
         "--window-size=1280,900"
     )
@@ -500,16 +611,17 @@ def main():
         options=options
     )
 
-    results = []
-    changed_results = []
-
     try:
 
         # ====================================================
-        # targets.json の各対象をチェック
+        # ホテルチェック
         # ====================================================
 
         for target in targets:
+
+            state_key = make_state_key(
+                target
+            )
 
             try:
 
@@ -532,19 +644,7 @@ def main():
                 )
 
                 # --------------------------------------------
-                # ホテル＋日付で状態を管理
-                # --------------------------------------------
-
-                state_key = make_state_key(
-                    target
-                )
-
-                print(
-                    f"状態キー：{state_key}"
-                )
-
-                # --------------------------------------------
-                # 前回状態と比較
+                # 前回状態
                 # --------------------------------------------
 
                 if state_key in previous_state:
@@ -553,17 +653,24 @@ def main():
                         state_key
                     ]
 
-                    # ========================================
-                    # 空室なし → 空室あり
-                    # ========================================
+                    print(
+                        f"前回状態："
+                        f"{'○' if previous else '×'}"
+                    )
 
+                    print(
+                        f"今回状態："
+                        f"{'○' if vacancy else '×'}"
+                    )
+
+                    # × → ○
                     if (
                         previous is False
                         and vacancy is True
                     ):
 
                         print(
-                            "🟢 空室が発生しました！"
+                            "🟢 空室発生を検出しました！"
                         )
 
                         changed_results.append(
@@ -574,10 +681,7 @@ def main():
                             )
                         )
 
-                    # ========================================
-                    # 空室あり → 空室なし
-                    # ========================================
-
+                    # ○ → ×
                     elif (
                         previous is True
                         and vacancy is False
@@ -596,79 +700,113 @@ def main():
                 else:
 
                     print(
-                        "初回チェック：状態を記録します。"
+                        "初回チェック："
+                        "前回状態がないため通知対象にはしません。"
                     )
 
-                # --------------------------------------------
-                # 現在状態を保存
-                # --------------------------------------------
+                    print(
+                        f"初回状態："
+                        f"{'○' if vacancy else '×'}"
+                    )
 
-                previous_state[
-                    state_key
-                ] = vacancy
+                # ------------------------------------------------
+                # 現在状態は一旦記録する。
+                #
+                # ただし「×→○」の場合は、
+                # 空室メール送信成功後に確定する。
+                # ------------------------------------------------
+
+                if not (
+                    state_key in previous_state
+                    and previous_state[state_key] is False
+                    and vacancy is True
+                ):
+                    previous_state[state_key] = vacancy
 
             except Exception as error:
 
-                print(
-                    f"❌ {target['hotel_name']} "
-                    f"{target['checkin']}～"
-                    f"{target['checkout']} "
-                    "チェックエラー"
+                message = (
+                    f"{target['hotel_name']} "
+                    f"（{target['checkin']}～"
+                    f"{target['checkout']}）："
+                    f"{error}"
                 )
 
-                print(error)
+                print()
+                print(
+                    "❌ チェックエラー"
+                )
+                print(
+                    message
+                )
+
+                errors.append(message)
 
         # ====================================================
-        # 起動時メール
+        # チェック結果
+        # ====================================================
+
+        print()
+        print("=" * 70)
+        print("監視結果")
+        print("=" * 70)
+
+        print(
+            f"成功：{len(results)} 件"
+        )
+
+        print(
+            f"エラー：{len(errors)} 件"
+        )
+
+        print(
+            f"空室発生：{len(changed_results)} 件"
+        )
+
+        # ====================================================
+        # 初回メール
         # ====================================================
 
         if first_run and results:
 
-            print()
-            print(
-                "📢 初回起動メールを送信します"
-            )
-
             body = create_mail_body(
                 results,
-                "startup"
+                "startup",
+                errors
             )
 
-            if send_mail(
-                "【東横INN・GitHub】監視開始",
+            send_mail(
+                "【東横INN・GitHub】監視開始時の空室状況",
                 body
-            ):
-
-                previous_state[
-                    "startup_mail_sent"
-                ] = True
+            )
 
         # ====================================================
         # 毎朝7:00メール
         # ====================================================
 
+        today = current_time.strftime(
+            "%Y-%m-%d"
+        )
+
         last_daily_mail = previous_state.get(
             "last_daily_mail"
         )
 
-        is_7am = (
-            current_time.hour == 7
-        )
-
         if (
-            is_7am
+            current_time.hour == 7
             and last_daily_mail != today
             and results
         ):
 
             print()
             print(
-                "📢 毎朝7:00の定期メールを送信します"
+                "📢 毎朝7:00メールを送信します"
             )
 
             body = create_mail_body(
                 results,
-                "daily"
+                "daily",
+                errors
             )
 
             if send_mail(
@@ -693,26 +831,73 @@ def main():
 
             body = create_mail_body(
                 changed_results,
-                "vacancy"
+                "vacancy",
+                errors
             )
 
-            send_mail(
+            mail_ok = send_mail(
                 "【東横INN・GitHub】空室が発生しました！",
                 body
             )
 
+            if mail_ok:
+
+                print(
+                    "✅ 空室通知メール成功"
+                )
+
+                # メール成功後にだけ、
+                # ×→○を現在状態として確定
+                for target, vacancy, room_status in changed_results:
+
+                    state_key = make_state_key(
+                        target
+                    )
+
+                    previous_state[
+                        state_key
+                    ] = True
+
+            else:
+
+                print(
+                    "⚠️ 空室通知メール失敗"
+                )
+
+                print(
+                    "⚠️ 次回実行でも再通知できるよう、"
+                    "×→○の状態は未確定のままにします。"
+                )
+
         # ====================================================
-        # 状態保存
+        # state.json保存
         # ====================================================
 
         save_state(
             previous_state
         )
 
+        # ====================================================
+        # 全件失敗ならGitHub Actionsも失敗にする
+        # ====================================================
+
+        if not results:
+
+            raise RuntimeError(
+                "すべての監視対象でチェックに失敗しました。"
+            )
+
+        if errors:
+
+            print()
+            print(
+                "⚠️ 一部の監視対象でエラーが発生しています。"
+            )
+
         print()
-        print(
-            "💾 state.json を保存しました"
-        )
+        print("=" * 70)
+        print("今回の監視処理は完了しました。")
+        print("=" * 70)
 
     finally:
 
@@ -722,8 +907,6 @@ def main():
         print(
             "Chromeを終了しました。"
         )
-
-        print()
 
 
 # ============================================================
