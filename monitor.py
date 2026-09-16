@@ -210,25 +210,38 @@ CHILD_PLAN_SELECTOR = (
 # カード内コンテンツの描画待ち
 #
 # 親カードが出現した直後は、内部の「空室なし」表示や
-# 「プラン一覧」がまだ非同期で描画されていないことがある。
-# そのタイミングで判定すると、両方とも見つからず
-# 誤って「空室なし」と判定してしまう可能性があるため、
-# どちらか一方が現れるまで明示的に待つ。
+# 「プラン一覧」がまだ非同期（API経由）で描画されていないことがある。
+#
+# このサイトでは「空室なし」専用の表示が存在しないカードも多く、
+# その場合は空室の有無に関わらず最初は「プランなし」に見える。
+# 空きがある部屋ほど、プラン・価格情報の取得に時間がかかる
+# 傾向があるため、カードごとに個別に待つと
+#   ・満室カードの数だけ待ち時間が掛け算で増える
+#   ・逆に待ち時間を短くすると、本当に空きがある部屋の
+#     データ取得が間に合わず「プランなし」と誤判定する
+# というジレンマが生じる。
+#
+# そのため、カードごとではなく「ページ内のどれか1枚でも
+# プラン情報（または空室なし表示）が現れるまで」を
+# 1回だけ待つ方式にする。これなら、空きがあるページでは
+# 早期に条件が満たされて待機が打ち切られ、全滅（満室）の
+# ページでも「1ホテルにつき最大1回分」のタイムアウトで済む。
 # ============================================================
 
-def wait_for_card_content(driver, card, timeout=2):
+def wait_for_any_card_content(driver, cards, timeout=8):
 
     try:
         WebDriverWait(driver, timeout).until(
-            lambda d: (
+            lambda d: any(
                 card.find_elements(By.CSS_SELECTOR, NO_RESULT_SELECTOR)
                 or card.find_elements(By.CSS_SELECTOR, CHILD_PLAN_SELECTOR)
+                for card in cards
             )
         )
     except Exception:
         # タイムアウトしても致命的エラーにはせず、
         # 呼び出し側の判定ロジック（プランなし＝空室なし）に委ねる。
-        # ここで例外を投げると、単なる描画遅延で
+        # ここで例外を投げると、本当に全滅（満室）だった場合に
         # チェックエラー扱いになってしまうため。
         pass
 
@@ -295,6 +308,11 @@ def check_hotel(driver, target):
 
     print(f"部屋タイプカード数：{len(cards)}")
 
+    # カードごとではなく、このホテルのページ全体で1回だけ、
+    # どれか1枚にプラン情報（または空室なし表示）が
+    # 現れるまで待つ。
+    wait_for_any_card_content(driver, cards)
+
     room_status = {}
 
     for index, card in enumerate(cards, start=1):
@@ -315,10 +333,6 @@ def check_hotel(driver, target):
             raise RuntimeError(
                 f"{index}番目の部屋カードの部屋名が空です。"
             )
-
-        # 「空室なし」表示 or プラン一覧のどちらかが
-        # 描画されるまで待つ（非同期描画によるすれ違い対策）
-        wait_for_card_content(driver, card)
 
         no_result = card.find_elements(
             By.CSS_SELECTOR,
