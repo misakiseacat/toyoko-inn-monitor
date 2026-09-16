@@ -4,13 +4,14 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+    inputs:
+      debug_html:
+        description: "実行時のページHTMLをアーティファクトとして保存する（デバッグ用）"
+        type: boolean
+        default: false
 
 # 前回の実行がまだ終わっていない場合、新しい実行は
 # 強制終了させずに待たせる（キューイングする）。
-# これにより、同時に複数のSeleniumプロセスが
-# 同じサイトへアクセスして負荷・レート制限に
-# 引っかかったり、state.jsonの取り合いでpushが
-# 失敗したりする事故を防ぐ。
 concurrency:
   group: toyoko-inn-monitor
   cancel-in-progress: false
@@ -36,6 +37,10 @@ jobs:
 
       - name: Run monitor
         env:
+          # 機密情報ではないため Secrets ではなく Variables を使う。
+          # Secretsにすると、値と一致する文字だけログ上で
+          # ***にマスキングされてしまい（例：値が "1" だと
+          # 日付の中の "1" まで隠れてしまう）、ログが読みにくくなる。
           TOYOKO_PEOPLE: ${{ vars.TOYOKO_PEOPLE }}
           TOYOKO_ROOMS: ${{ vars.TOYOKO_ROOMS }}
           TOYOKO_SMOKING: ${{ vars.TOYOKO_SMOKING }}
@@ -43,7 +48,20 @@ jobs:
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
           PYTHONUNBUFFERED: "1"
+          TOYOKO_DEBUG_HTML: ${{ github.event.inputs.debug_html == 'true' && '1' || '0' }}
+
         run: python -u monitor.py
+
+      - name: Upload debug HTML (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: |
+            debug_*.html
+            error_*.png
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Save state
         run: |
