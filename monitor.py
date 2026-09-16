@@ -207,6 +207,33 @@ CHILD_PLAN_SELECTOR = (
 
 
 # ============================================================
+# カード内コンテンツの描画待ち
+#
+# 親カードが出現した直後は、内部の「空室なし」表示や
+# 「プラン一覧」がまだ非同期で描画されていないことがある。
+# そのタイミングで判定すると、両方とも見つからず
+# 誤って「空室なし」と判定してしまう可能性があるため、
+# どちらか一方が現れるまで明示的に待つ。
+# ============================================================
+
+def wait_for_card_content(driver, card, timeout=10):
+
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: (
+                card.find_elements(By.CSS_SELECTOR, NO_RESULT_SELECTOR)
+                or card.find_elements(By.CSS_SELECTOR, CHILD_PLAN_SELECTOR)
+            )
+        )
+    except Exception:
+        # タイムアウトしても致命的エラーにはせず、
+        # 呼び出し側の判定ロジック（プランなし＝空室なし）に委ねる。
+        # ここで例外を投げると、単なる描画遅延で
+        # チェックエラー扱いになってしまうため。
+        pass
+
+
+# ============================================================
 # 空室チェック
 # ============================================================
 
@@ -289,6 +316,10 @@ def check_hotel(driver, target):
                 f"{index}番目の部屋カードの部屋名が空です。"
             )
 
+        # 「空室なし」表示 or プラン一覧のどちらかが
+        # 描画されるまで待つ（非同期描画によるすれ違い対策）
+        wait_for_card_content(driver, card)
+
         no_result = card.find_elements(
             By.CSS_SELECTOR,
             NO_RESULT_SELECTOR
@@ -314,7 +345,7 @@ def check_hotel(driver, target):
                 # プランが存在しない場合は空室なしとして扱う。
                 available = False
                 reason = "プランなし"
-                
+
         room_status[title] = available
 
         mark = "○" if available else "×"
@@ -718,9 +749,28 @@ def main():
 
                 else:
 
+                    # ------------------------------------------------
+                    # この条件（ホテル×日程）は state.json に
+                    # 履歴がない＝今回が初めてのチェック。
+                    #
+                    # 従来は「前回状態がないので通知しない」として
+                    # 無条件にスキップしていたが、これだと
+                    # 「targets.jsonに新しく条件を追加した時点で
+                    #  すでに空室があった」場合に永久に通知されない
+                    # バグがあった。
+                    #
+                    # そのため、初回チェックであっても
+                    # 空室ありなら通知対象に含める。
+                    # ただし全体の初回起動（first_run、つまり
+                    # state.json自体が空の状態からの初回実行）は
+                    # 別途「監視開始時の空室状況」メールで
+                    # 全件まとめて通知するので、二重送信を避けるため
+                    # そちらとは分けて扱う。
+                    # ------------------------------------------------
+
                     print(
                         "初回チェック："
-                        "前回状態がないため通知対象にはしません。"
+                        "この条件の履歴はまだありません。"
                     )
 
                     print(
@@ -728,18 +778,38 @@ def main():
                         f"{'○' if vacancy else '×'}"
                     )
 
+                    if vacancy and not first_run:
+
+                        print(
+                            "🟢 新規追加条件で空室を検出しました！"
+                        )
+
+                        changed_results.append(
+                            (
+                                target,
+                                vacancy,
+                                room_status
+                            )
+                        )
+
                 # ------------------------------------------------
                 # 現在状態は一旦記録する。
                 #
-                # ただし「×→○」の場合は、
+                # ただし「×→○」または「新規条件で空室あり」の場合は、
                 # 空室メール送信成功後に確定する。
                 # ------------------------------------------------
 
-                if not (
+                pending_notification = (
                     state_key in previous_state
                     and previous_state[state_key] is False
                     and vacancy is True
-                ):
+                ) or (
+                    state_key not in previous_state
+                    and vacancy is True
+                    and not first_run
+                )
+
+                if not pending_notification:
                     previous_state[state_key] = vacancy
 
             except Exception as error:
@@ -816,6 +886,10 @@ def main():
                 body
             )
 
+            # 全体初回起動時は、この時点の状態をそのまま確定する
+            for target, vacancy, room_status in results:
+                previous_state[make_state_key(target)] = vacancy
+
         # ====================================================
         # 毎朝7:00メール
         # ====================================================
@@ -883,7 +957,8 @@ def main():
                 )
 
                 # メール成功後にだけ、
-                # ×→○を現在状態として確定
+                # ×→○（または新規条件の初回空室）を
+                # 現在状態として確定
                 for target, vacancy, room_status in changed_results:
 
                     state_key = make_state_key(
@@ -902,7 +977,7 @@ def main():
 
                 print(
                     "⚠️ 次回実行でも再通知できるよう、"
-                    "×→○の状態は未確定のままにします。"
+                    "空室ありの状態は未確定のままにします。"
                 )
 
         # ====================================================
