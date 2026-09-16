@@ -2,8 +2,18 @@ name: Toyoko Inn Vacancy Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
+
+# 前回の実行がまだ終わっていない場合、新しい実行は
+# 強制終了させずに待たせる（キューイングする）。
+# これにより、同時に複数のSeleniumプロセスが
+# 同じサイトへアクセスして負荷・レート制限に
+# 引っかかったり、state.jsonの取り合いでpushが
+# 失敗したりする事故を防ぐ。
+concurrency:
+  group: toyoko-inn-monitor
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -41,4 +51,5 @@ jobs:
           git config user.email "github-actions@github.com"
           git add state.json
           git diff --cached --quiet || git commit -m "Update vacancy state"
+          git pull --rebase
           git push
