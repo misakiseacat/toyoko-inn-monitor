@@ -42,8 +42,9 @@ jobs:
           GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
+          PYTHONUNBUFFERED: "1"          # ← この行を追加
 
-        run: python monitor.py
+        run: python -u monitor.py         # ← "python" を "python -u" に変更
 
       - name: Save state
         run: |
