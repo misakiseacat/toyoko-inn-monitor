@@ -26,8 +26,6 @@ jobs:
 
       - name: Run monitor
         env:
-          TOYOKO_CHECKIN: ${{ secrets.TOYOKO_CHECKIN }}
-          TOYOKO_CHECKOUT: ${{ secrets.TOYOKO_CHECKOUT }}
           TOYOKO_PEOPLE: ${{ secrets.TOYOKO_PEOPLE }}
           TOYOKO_ROOMS: ${{ secrets.TOYOKO_ROOMS }}
           TOYOKO_SMOKING: ${{ secrets.TOYOKO_SMOKING }}
