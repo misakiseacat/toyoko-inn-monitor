@@ -235,14 +235,14 @@ CHILD_PLAN_SELECTOR = (
 # ページでも「1ホテルにつき最大1回分」のタイムアウトで済む。
 # ============================================================
 
-def wait_for_any_card_content(driver, cards, timeout=8):
+def wait_for_any_card_content(driver, card_containers, timeout=8):
 
     try:
         WebDriverWait(driver, timeout).until(
             lambda d: any(
-                card.find_elements(By.CSS_SELECTOR, NO_RESULT_SELECTOR)
-                or card.find_elements(By.CSS_SELECTOR, CHILD_PLAN_SELECTOR)
-                for card in cards
+                container.find_elements(By.CSS_SELECTOR, NO_RESULT_SELECTOR)
+                or container.find_elements(By.CSS_SELECTOR, CHILD_PLAN_SELECTOR)
+                for container in card_containers
             )
         )
     except Exception:
@@ -315,10 +315,18 @@ def check_hotel(driver, target):
 
     print(f"部屋タイプカード数：{len(cards)}")
 
+    # 実際のHTMLでは、
+    # card-wrapper と child-list（プラン一覧／空室なし表示）が
+    # 兄弟要素になっているため、card-wrapper の親要素を取得する。
+    card_containers = [
+        card.find_element(By.XPATH, "..")
+        for card in cards
+    ]
+
     # カードごとではなく、このホテルのページ全体で1回だけ、
-    # どれか1枚にプラン情報（または空室なし表示）が
+    # どれか1つの親コンテナにプラン情報（または空室なし表示）が
     # 現れるまで待つ。
-    wait_for_any_card_content(driver, cards)
+    wait_for_any_card_content(driver, card_containers)
 
     # ------------------------------------------------------------
     # デバッグ用：実際のHTML構造を確認するための一時的な仕組み。
@@ -367,7 +375,11 @@ def check_hotel(driver, target):
                 f"{index}番目の部屋カードの部屋名が空です。"
             )
 
-        no_result = card.find_elements(
+        # 実際のHTMLでは、空室なし表示とプラン一覧は
+        # card-wrapper の中ではなく、その親コンテナ側にある。
+        container = card.find_element(By.XPATH, "..")
+
+        no_result = container.find_elements(
             By.CSS_SELECTOR,
             NO_RESULT_SELECTOR
         )
@@ -377,7 +389,7 @@ def check_hotel(driver, target):
             reason = "空室なし表示"
 
         else:
-            plans = card.find_elements(
+            plans = container.find_elements(
                 By.CSS_SELECTOR,
                 CHILD_PLAN_SELECTOR
             )
