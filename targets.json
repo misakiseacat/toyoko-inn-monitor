@@ -19,26 +19,50 @@
     },
     {
         "checkin": "2026-11-20",
+        "checkout": "2026-11-21",
+        "hotel_id": "00356",
+        "hotel_name": "東横INN大阪ドーム前"
+    },
+    {
+        "checkin": "2026-11-21",
         "checkout": "2026-11-22",
         "hotel_id": "00356",
         "hotel_name": "東横INN大阪ドーム前"
     },
     {
-        "checkin": "2026-11-20",
-        "checkout": "2026-11-22",
-        "hotel_id": "00349",
-        "hotel_name": "東横INN大阪弁天町"
+        "checkin": "2027-02-06",
+        "checkout": "2027-02-07",
+        "hotel_id": "00017",
+        "hotel_name": "東横INN博多駅前祇園"
     },
     {
-        "checkin": "2027-02-06",
+        "checkin": "2027-02-07",
         "checkout": "2027-02-08",
         "hotel_id": "00017",
         "hotel_name": "東横INN博多駅前祇園"
     },
     {
         "checkin": "2027-02-19",
+        "checkout": "2027-02-20",
+        "hotel_id": "00356",
+        "hotel_name": "東横INN大阪ドーム前"
+    },
+    {
+        "checkin": "2027-02-20",
         "checkout": "2027-02-21",
         "hotel_id": "00356",
         "hotel_name": "東横INN大阪ドーム前"
+    },
+    {
+        "checkin": "2026-11-20",
+        "checkout": "2026-11-21",
+        "hotel_id": "00349",
+        "hotel_name": "東横INN大阪弁天町"
+    },
+    {
+        "checkin": "2026-11-21",
+        "checkout": "2026-11-22",
+        "hotel_id": "00349",
+        "hotel_name": "東横INN大阪弁天町"
     }
 ]
