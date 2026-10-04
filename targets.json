@@ -64,5 +64,17 @@
         "checkout": "2026-11-22",
         "hotel_id": "00349",
         "hotel_name": "東横INN大阪弁天町"
+    },
+    {
+        "checkin": "2026-10-23",
+        "checkout": "2026-10-24",
+        "hotel_id": "00291",
+        "hotel_name": "東横INNソウル東大門2"
+    },
+    {
+        "checkin": "2026-10-24",
+        "checkout": "2026-10-25",
+        "hotel_id": "00291",
+        "hotel_name": "東横INNソウル東大門2"
     }
 ]
