@@ -1,1 +1,66 @@
+name: Toyoko Inn Vacancy Monitor
 
+on:
+  schedule:
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch:
+    inputs:
+      debug_html:
+        description: "実行時のページHTMLをアーティファクトとして保存する（デバッグ用）"
+        type: boolean
+        default: false
+
+concurrency:
+  group: toyoko-inn-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Selenium
+        run: pip install selenium
+
+      - name: Run monitor
+        env:
+          TOYOKO_PEOPLE: ${{ vars.TOYOKO_PEOPLE }}
+          TOYOKO_ROOMS: ${{ vars.TOYOKO_ROOMS }}
+          TOYOKO_SMOKING: ${{ vars.TOYOKO_SMOKING }}
+          GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          GMAIL_RECEIVER: ${{ secrets.GMAIL_RECEIVER }}
+          PYTHONUNBUFFERED: "1"
+          TOYOKO_DEBUG_HTML: ${{ inputs.debug_html }}
+        run: python -u monitor.py
+
+      - name: Upload debug HTML (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: |
+            debug_*.html
+            error_*.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Save state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add state.json
+          git diff --cached --quiet || git commit -m "Update vacancy state"
+          git pull --rebase
+          git push
