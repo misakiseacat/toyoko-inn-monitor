@@ -2,7 +2,7 @@ name: Toyoko Inn Vacancy Monitor
 
 on:
   schedule:
-    - cron: "3,13,23,33,43,53 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       debug_html:
