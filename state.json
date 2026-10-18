@@ -13,13 +13,6 @@
     "00208_2026-10-25_2026-10-26": true,
     "run_history": [
         {
-            "time": "2026-10-18 20:40:12",
-            "status": "正常",
-            "checked": 12,
-            "errors": 0,
-            "vacancies": 2
-        },
-        {
             "time": "2026-10-18 23:48:51",
             "status": "正常",
             "checked": 12,
@@ -42,6 +35,13 @@
         },
         {
             "time": "2026-10-19 06:51:28",
+            "status": "正常",
+            "checked": 12,
+            "errors": 0,
+            "vacancies": 2
+        },
+        {
+            "time": "2026-10-19 08:44:22",
             "status": "正常",
             "checked": 12,
             "errors": 0,
