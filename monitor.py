@@ -1,8 +1,10 @@
 import json
 import os
 import smtplib
+import html
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.header import Header
 
 from selenium import webdriver
@@ -473,7 +475,8 @@ def print_status(target, room_status):
 def create_mail_body(
     results,
     mail_type,
-    errors=None
+    errors=None,
+    history=None
 ):
 
     lines = []
@@ -556,20 +559,114 @@ def create_mail_body(
         "※ ○＝空室あり、×＝空室なし"
     )
 
+    if history:
+        lines.append("")
+        lines.append("【実行履歴（直近5回）】")
+        for item in reversed(history[-5:]):
+            lines.append(
+                f"{item.get('time', '日時不明')}｜"
+                f"{item.get('status', '結果不明')}｜"
+                f"成功 {item.get('checked', 0)}件／"
+                f"エラー {item.get('errors', 0)}件／"
+                f"空室あり {item.get('vacancies', 0)}件"
+            )
+
     return "\n".join(lines)
+
+
+def create_mail_html(results, mail_type, errors=None, history=None):
+    """ホテル名をクリック可能にしたHTMLメール本文を作成する。"""
+    current_time = now_jst()
+    titles = {
+        "startup": "監視開始時の空室状況",
+        "daily": "毎朝7:00 定期監視",
+        "vacancy": "空室が発生しました",
+    }
+    parts = [
+        "<html><body style='font-family:Arial,sans-serif;color:#222'>",
+        "<h2>東横INN 空室監視</h2>",
+        "<p>実行環境：GitHub Actions<br>",
+        f"確認日時：{current_time:%Y-%m-%d %H:%M:%S}<br>",
+        f"監視件数：{len(results)} 件</p>",
+        f"<h3>{html.escape(titles.get(mail_type, '監視結果'))}</h3>",
+    ]
+
+    for target, vacancy, room_status in results:
+        hotel_name = html.escape(str(target["hotel_name"]))
+        url = html.escape(
+            make_url(target["hotel_id"], target["checkin"], target["checkout"]),
+            quote=True,
+        )
+        parts.append(
+            f"<h3><a href=\"{url}\">{hotel_name}</a></h3>"
+        )
+        parts.append(
+            f"<p>宿泊日：{html.escape(str(target['checkin']))} ～ "
+            f"{html.escape(str(target['checkout']))}</p>"
+        )
+        parts.append("<ul>")
+        for room, available in room_status.items():
+            mark = "○" if available else "×"
+            parts.append(
+                f"<li>{mark}　{html.escape(str(room))}</li>"
+            )
+        parts.append("</ul>")
+        available_rooms = [
+            room for room, available in room_status.items() if available
+        ]
+        if available_rooms:
+            parts.append(
+                "<p><strong>空室あり：</strong>"
+                + html.escape("、".join(available_rooms))
+                + "</p>"
+            )
+        else:
+            parts.append("<p>空室なし</p>")
+
+    if errors:
+        parts.append("<h3>チェックエラー</h3><ul>")
+        for error in errors:
+            parts.append(f"<li>{html.escape(str(error))}</li>")
+        parts.append("</ul>")
+
+    parts.append("<p>※ ○＝空室あり、×＝空室なし</p>")
+
+    if history:
+        parts.append("<h3>実行履歴（直近5回）</h3><table "
+                     "border='1' cellpadding='6' cellspacing='0' "
+                     "style='border-collapse:collapse'>")
+        parts.append(
+            "<tr><th>日時</th><th>結果</th><th>成功</th>"
+            "<th>エラー</th><th>空室あり</th></tr>"
+        )
+        for item in reversed(history[-5:]):
+            parts.append(
+                "<tr>"
+                f"<td>{html.escape(str(item.get('time', '日時不明')))}</td>"
+                f"<td>{html.escape(str(item.get('status', '結果不明')))}</td>"
+                f"<td>{item.get('checked', 0)}</td>"
+                f"<td>{item.get('errors', 0)}</td>"
+                f"<td>{item.get('vacancies', 0)}</td>"
+                "</tr>"
+            )
+        parts.append("</table>")
+
+    parts.append("</body></html>")
+    return "".join(parts)
 
 
 # ============================================================
 # Gmail送信
 # ============================================================
 
-def send_mail(subject, body):
+def send_mail(subject, body, html_body=None):
 
-    message = MIMEText(
-        body,
-        "plain",
-        "utf-8"
-    )
+    if html_body:
+        message = MIMEMultipart("alternative")
+        message.attach(MIMEText(body, "plain", "utf-8"))
+        message.attach(MIMEText(html_body, "html", "utf-8"))
+    else:
+        message = MIMEText(body, "plain", "utf-8")
 
     message["Subject"] = Header(
         subject,
@@ -936,6 +1033,32 @@ def main():
         )
 
         # ====================================================
+        # 実行履歴をstate.jsonに保存（直近5回分）
+        # GitHub Actions側でstate.jsonがコミットされる前提
+        # ====================================================
+
+        run_history = previous_state.get("run_history", [])
+        if not isinstance(run_history, list):
+            run_history = []
+
+        if not results:
+            run_status = "失敗"
+        elif errors:
+            run_status = "一部エラー"
+        else:
+            run_status = "正常"
+
+        run_history.append({
+            "time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": run_status,
+            "checked": len(results),
+            "errors": len(errors),
+            "vacancies": sum(1 for _, vacancy, _ in results if vacancy),
+        })
+        run_history = run_history[-5:]
+        previous_state["run_history"] = run_history
+
+        # ====================================================
         # 初回メール
         # ====================================================
 
@@ -944,12 +1067,17 @@ def main():
             body = create_mail_body(
                 results,
                 "startup",
-                errors
+                errors,
+                run_history
+            )
+            html_body = create_mail_html(
+                results, "startup", errors, run_history
             )
 
             send_mail(
                 "【東横INN・GitHub】監視開始時の空室状況",
-                body
+                body,
+                html_body
             )
 
             # 全体初回起動時は、この時点の状態をそのまま確定する
@@ -982,12 +1110,17 @@ def main():
             body = create_mail_body(
                 results,
                 "daily",
-                errors
+                errors,
+                run_history
+            )
+            html_body = create_mail_html(
+                results, "daily", errors, run_history
             )
 
             if send_mail(
                 "【東横INN・GitHub】毎朝7:00監視確認",
-                body
+                body,
+                html_body
             ):
 
                 previous_state[
@@ -1008,12 +1141,17 @@ def main():
             body = create_mail_body(
                 changed_results,
                 "vacancy",
-                errors
+                errors,
+                run_history
+            )
+            html_body = create_mail_html(
+                changed_results, "vacancy", errors, run_history
             )
 
             mail_ok = send_mail(
                 "【東横INN・GitHub】空室が発生しました！",
-                body
+                body,
+                html_body
             )
 
             if mail_ok:
