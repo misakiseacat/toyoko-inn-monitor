@@ -9,13 +9,6 @@
     "00349_2026-11-21_2026-11-22": false,
     "run_history": [
         {
-            "time": "2026-10-21 02:34:16",
-            "status": "正常",
-            "checked": 8,
-            "errors": 0,
-            "vacancies": 1
-        },
-        {
             "time": "2026-10-21 05:50:51",
             "status": "正常",
             "checked": 8,
@@ -38,6 +31,13 @@
         },
         {
             "time": "2026-10-21 15:59:44",
+            "status": "正常",
+            "checked": 8,
+            "errors": 0,
+            "vacancies": 1
+        },
+        {
+            "time": "2026-10-21 21:48:05",
             "status": "正常",
             "checked": 8,
             "errors": 0,
