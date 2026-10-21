@@ -35,6 +35,13 @@
             "checked": 8,
             "errors": 0,
             "vacancies": 1
+        },
+        {
+            "time": "2026-10-21 10:52:47",
+            "status": "正常",
+            "checked": 8,
+            "errors": 0,
+            "vacancies": 1
         }
     ]
 }
