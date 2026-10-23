@@ -199,20 +199,27 @@ def make_state_key(target):
 # class名の前半部分を使う
 # ============================================================
 
+# CSS Modulesのクラス名に含まれる
+# "-module-scss-module__...__" 形式に対応する。
+# ハッシュ部分（例：rGrQIW）は変わる可能性があるため固定しない。
 PARENT_CARD_SELECTOR = (
-    "div[class*='SearchResultRoomPlanParentCard_card-wrapper']"
+    "div[class*='SearchResultRoomPlanParentCard-module-scss-module']"
+    "[class*='__card-wrapper']"
 )
 
 ROOM_TITLE_SELECTOR = (
-    "h2[class*='SearchResultRoomPlanParentCard_title']"
+    "h2[class*='SearchResultRoomPlanParentCard-module-scss-module']"
+    "[class*='__title']"
 )
 
 NO_RESULT_SELECTOR = (
-    "div[class*='SearchResultRoomPlanParentCard_no-result']"
+    "[class*='SearchResultRoomPlanParentCard-module-scss-module']"
+    "[class*='__no-result']"
 )
 
 CHILD_PLAN_SELECTOR = (
-    "div[class*='SearchResultRoomPlanChildCard_card-wrapper']"
+    "div[class*='SearchResultRoomPlanChildCard-module-scss-module']"
+    "[class*='__card-wrapper']"
 )
 
 
