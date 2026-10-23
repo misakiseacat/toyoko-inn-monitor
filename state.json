@@ -31,6 +31,13 @@
             "checked": 4,
             "errors": 0,
             "vacancies": 4
+        },
+        {
+            "time": "2026-10-24 03:37:21",
+            "status": "正常",
+            "checked": 4,
+            "errors": 0,
+            "vacancies": 4
         }
     ]
 }
