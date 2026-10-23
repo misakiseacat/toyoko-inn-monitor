@@ -1,3 +1,4 @@
+
 name: Toyoko Inn Vacancy Monitor
 
 on:
@@ -52,6 +53,7 @@ jobs:
           name: debug-html
           path: |
             debug_*.html
+            error_*.html
             error_*.png
           if-no-files-found: ignore
           retention-days: 3
