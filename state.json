@@ -5,13 +5,6 @@
     "00282_2026-10-25_2026-10-26": true,
     "run_history": [
         {
-            "time": "2026-10-23 18:47:31",
-            "status": "正常",
-            "checked": 4,
-            "errors": 0,
-            "vacancies": 4
-        },
-        {
             "time": "2026-10-23 23:28:53",
             "status": "正常",
             "checked": 4,
@@ -34,6 +27,13 @@
         },
         {
             "time": "2026-10-24 08:58:34",
+            "status": "正常",
+            "checked": 4,
+            "errors": 0,
+            "vacancies": 4
+        },
+        {
+            "time": "2026-10-24 12:31:47",
             "status": "正常",
             "checked": 4,
             "errors": 0,
