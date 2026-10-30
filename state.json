@@ -6,13 +6,6 @@
     "00356_2027-02-20_2027-02-21": false,
     "run_history": [
         {
-            "time": "2026-10-30 05:41:26",
-            "status": "正常",
-            "checked": 5,
-            "errors": 0,
-            "vacancies": 1
-        },
-        {
             "time": "2026-10-30 09:22:37",
             "status": "正常",
             "checked": 5,
@@ -39,7 +32,14 @@
             "checked": 5,
             "errors": 0,
             "vacancies": 1
+        },
+        {
+            "time": "2026-10-31 07:26:33",
+            "status": "正常",
+            "checked": 5,
+            "errors": 0,
+            "vacancies": 1
         }
     ],
-    "last_daily_mail": "2026-10-28"
+    "last_daily_mail": "2026-10-31"
 }
